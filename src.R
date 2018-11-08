@@ -195,7 +195,7 @@ distanc0r = function(candidates, # new park coorindates matrix
                     ncol= dim(dist_new)[2],
                     data =F)
     for(row in 1:dim(dist_new)[1]){
-      m.temp[row,]   = ifelse(dist_new[row,] == min(dist_new[row,]), poly_df$pop[row]*min(dist_new[row,]),0)
+      m.temp[row,]   = ifelse(dist_new[row,] == min(dist_new[row,]), poly_df$pop[row],0)
     }
     event_pop = colSums(m.temp)
     event_lsoa_n = apply(m.temp,2,function(x) sum(x != 0))
