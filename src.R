@@ -117,147 +117,245 @@ distanc0r = function(candidates, # new park coorindates matrix
 
 
 
-# select candidate parks coordinates
-candidates = greenspace.coord
 
-# copy parkrun events coordinates to be appended with new events
-parkrun_marker.coord_append = parkrun_marker.coord
 
-# give rownames to later identify which parks were used
-full_len = dim(candidates)[1]
-full_names = 1:full_len
-rownames(candidates) = full_names
-
-# store results
-winner_i = data.frame(index = NA, sum = NA,lon = NA, lat =NA)
-ingame = rep(T,times=full_len) 
-
-for(k in 11:25){
-  # find best new park
-  test = distanc0r(candidates = candidates,
-                   radius= 10000, 
-                   population = poly_df$pop,
-                   ref_sys = poly.coord,
-                   events.coord = parkrun_marker.coord_append)
+### find best parks for new events
+  # find a list of single best parks
+  first.picks = distanc0r(candidates = greenspace.coord,
+                          radius= 10000, 
+                          population = poly_df$pop,
+                          ref_sys = poly.coord,
+                          events.coord = parkrun_marker.coord)
   
-  # store results
-  winner_i[k,] = c(rownames(candidates)[test$winner_index],
-                   min(test$sum.i),
-                   test$winner[1],
-                   test$winner[2])
-  
-  # implement new park in the list of parkrun events
-  parkrun_marker.coord_append = rbind(test$winner,parkrun_marker.coord_append)
-  
-  # remove the park from candidate parks 
-  candidates = candidates[-test$winner_index,]
-  
-  # backup results
-  save(winner_i,file=paste("savegame",Sys.time(),".rdata",sep=""))
-}
+  first_picks = order(first.picks$sum.i)
+  top_s = 100
+  first_picks_selection = 1:length(first_picks) %in% first_picks[1:top_s] 
+  first_selection_parks = subset(greenspaces,
+                                 first_picks_selection)
+  reduction_perc = round((first.picks$sum.i - first.picks$sum.0)/first.picks$sum.0,5)*100
+  first_selection_parks$dist_reduction = reduction_perc[order(first.picks$sum.i,decreasing = F)][1:top_s] 
+  first_selection_parks.coord = coordinates(first_selection_parks)
 
-
-# select the park polygons
-selected = full_names %in% winner_i$index
-selected_parks = subset(greenspaces,
-                        selected)
-
-# create SpatialPoints for top new park coordinates
-winner_i$lon = as.numeric(winner_i$lon)
-winner_i$lat= as.numeric(winner_i$lat)
-g2 = data.frame(winner_i[,c("lon","lat")])
-coordinates(g2 ) = ~lon + lat
-proj4string(g2)=proj4string(poly_df)
-
-# compute new distances from lsoa to new + old parkrun events
-dist_new = distm(poly.coord,rbind(parkrun_marker.coord,coordinates(g2)))
-dist_new.min = apply(dist_new,1,function(x) min(x))
-# in km
-poly_df$new_mn_dstn = round(dist_new.min/1000,1)
-
-
-# select lsoa fill colors for old and new distances 
-  q_dists = as.numeric(quantile(poly_df$mn_dstn,probs = c(seq(0,1,by=0.2))))
-  pal_dist <- colorBin("RdYlGn", domain = poly_df$mn_dstn, bins = q_dists,reverse =T)
-  pal_dist_new <- colorBin("RdYlGn", domain = poly_df$new_mn_dstn, bins = q_dists,reverse =T)
-  
-  # LEAFLET MAP
-  map = leaflet() %>%
-    # provider base tiles
-    addProviderTiles(providers$Stamen.Toner, group = "Toner Map"
-                     ) %>%
-    addTiles(group = "OSM Map"
-             ) %>%
-    addProviderTiles("CartoDB.Positron",group= "Carto Map", options= providerTileOptions(opacity = 0.99)
-                     ) %>%
-    # set view to sheffield
-    setView(lng = -1.43, lat = 53.36, zoom = 7
-    ) %>%
-    # layer control
-    addLayersControl(
-      baseGroups = c("Carto Map","Toner Map","OSM Map"),
-      overlayGroups = c("parkrun Events","Distance","new Events","new Parks","new Distance"),
-      options = layersControlOptions(collapsed = T,autoZIndex=T)
-    ) %>%
+  ### find the consecutive top 25 
+    # select candidate parks coordinates
+    candidates = greenspace.coord
     
-    # add established parkrun events
-    addCircleMarkers(
-      group = "parkrun Events",
-      data = parkrun_marker,
-      radius = 5,
-      fillColor = "blue",
-      stroke = FALSE, fillOpacity = 0.9,
-      popup = paste("Course:",parkrun_marker$Club,"<br>",
-                    "Established:", parkrun_marker$Estblsh,"<br>",
-                    "Age in years:", parkrun_marker$Age_yrs,"<br>",
-                    "Mean participants:", round(parkrun_marker$Mn_prtc),"<br>",
-                    "Mean volunteers:", round(parkrun_marker$Mn_vlnt),"<br>")
-      ) %>% 
-    # add top candidates
-    addCircleMarkers(
-      group = "new Events",data = g2,
-      radius = 6,fillColor = "cyan",stroke = FALSE, fillOpacity = 0.9
-      ) %>% 
-    # add distances from lsoa to old events
-    addPolygons(data = poly_df, group = "Distance",
-                color = "gray", smoothFactor = 0,stroke = T,opacity = 0.5,
-                weight = 0.1, fillOpacity = 0.5,fillColor = ~pal_dist(mn_dstn),
-                highlight = highlightOptions(
-                  weight = 1,color = "cyan",opacity = 1,bringToFront = FALSE,sendToBack = TRUE),
-                popup = paste(
-                  poly_df$name,"<br>","Nearest event:", poly_df$nrst_vn,"<br>",
-                  "Distance: ",poly_df$mn_dstn," km <br>","new Distance: ",poly_df$new_mn_dstn," km <br>",
-                              "SIMD score:", poly_df$a,"<br>","Pop density:", poly_df$pp_dnst,"<br>","Population:", poly_df$pop)
-                ) %>%
-    # add distances from lsoa to new and old events
-    addPolygons(data = poly_df, group = "new Distance",
-                color = "gray", smoothFactor = 0,stroke = T,opacity = 0.5,
-                weight = 0.1, fillOpacity = 0.5,fillColor = ~pal_dist_new(new_mn_dstn),
-                highlight = highlightOptions(
-                  weight = 1,color = "cyan",opacity = 1,bringToFront = FALSE,sendToBack = TRUE),
-                popup = paste(
-                  poly_df$name,"<br>","Nearest event:", poly_df$nrst_vn,"<br>",
-                  "Distance: ",poly_df$mn_dstn," km <br>","new Distance: ",poly_df$new_mn_dstn," km <br>",
-                  "SIMD score:", poly_df$a,"<br>","Pop density:", poly_df$pp_dnst,"<br>","Population:", poly_df$pop)
-                ) %>%
-    # add candidate parks as parks
-    addPolygons(data = selected_parks, group = "new Parks",
-                color = "gray", smoothFactor = 0,stroke = T,opacity = 0.5,
-                weight = 0.1, fillOpacity = 0.5,fillColor = "cyan",
-                highlight = highlightOptions(
-                  weight = 1,color = "cyan",opacity = 1,bringToFront = FALSE,sendToBack = TRUE)
-                ) %>%
-    # hide all layers except old parkrun events
-    hideGroup("Distance") %>%
-    hideGroup("new Distance") %>%
-    hideGroup("new Parks") %>%
-    hideGroup("new Events")
+    # copy parkrun events coordinates to be appended with new events
+    parkrun_marker.coord_append = parkrun_marker.coord
+    
+    # give rownames to later identify which parks were used
+    full_len = dim(candidates)[1]
+    full_names = 1:full_len
+    rownames(candidates) = full_names
+    
+    # store results
+    winner_i = data.frame(index = NA, sum = NA,lon = NA, lat =NA)
+    ingame = rep(T,times=full_len) 
+    
+    for(k in 1:25){
+      # find best new park
+      test = distanc0r(candidates = candidates,
+                       radius= 10000, 
+                       population = poly_df$pop,
+                       ref_sys = poly.coord,
+                       events.coord = parkrun_marker.coord_append)
+      
+      # store results
+      winner_i[k,] = c(rownames(candidates)[test$winner_index],
+                       min(test$sum.i),
+                       test$winner[1],
+                       test$winner[2])
+      
+      # implement new park in the list of parkrun events
+      parkrun_marker.coord_append = rbind(test$winner,parkrun_marker.coord_append)
+      
+      # remove the park from candidate parks 
+      candidates = candidates[-test$winner_index,]
+      
+      # backup results
+      save(winner_i,file=paste("savegame",Sys.time(),".rdata",sep=""))
+    }
 
 
-  # save the map as a stand-aline html file
-  htmlwidgets::saveWidget(map,file="index.html",title = "parkrun, access & equity",selfcontained = F)
-  
-# map
+    
+    ## assess results
+    # select the park polygons
+    selected = full_names %in% winner_i$index
+    selected_parks = subset(greenspaces,
+                            selected)
+    selected_parks.coord = coordinates(selected_parks)
+    
+    # compute new distances from lsoa to new + old parkrun events
+    dist_new = distm(poly.coord,rbind(parkrun_marker.coord,selected_parks.coord))
+    dist_new.min = apply(dist_new,1,function(x) min(x))
+    poly_df$new_mn_dstn = round(dist_new.min/1000,1) # in km
+    
+    # assess resiults per parkrun event (new or old)
+    m.temp = matrix(nrow = dim(dist_new)[1],
+                    ncol= dim(dist_new)[2],
+                    data =F)
+    for(row in 1:dim(dist_new)[1]){
+      m.temp[row,]   = ifelse(dist_new[row,] == min(dist_new[row,]), poly_df$pop[row]*min(dist_new[row,]),0)
+    }
+    event_pop = colSums(m.temp)
+    event_lsoa_n = apply(m.temp,2,function(x) sum(x != 0))
+    
+    parkrun_marker$lsoa_served = event_lsoa_n[1:dim(parkrun_marker.coord)[1]]
+    parkrun_marker$pop_served = event_pop[1:dim(parkrun_marker.coord)[1]]
+    
+    selected_parks$lsoa_served = event_lsoa_n[(length(event_lsoa_n)-dim(winner_i)[1]+1):length(event_lsoa_n)]
+    selected_parks$pop_served = event_pop[(length(event_lsoa_n)-dim(winner_i)[1]+1):length(event_lsoa_n)]
+    
+    selected_parks$dist_reduction = round((as.numeric(winner_i$sum) - first.picks$sum.0)/first.picks$sum.0,5) *100
+
+    for(i in length(selected_parks$dist_reduction):2){
+      selected_parks$dist_reduction[i] = selected_parks$dist_reduction[i] - selected_parks$dist_reduction[i-1]
+    }
+    
+    # parks first or consecutive
+    selected_parks_any = subset(greenspaces,
+                            selected | first_picks_selection)
+    
+    
+### MAP RESULTS
+      # select lsoa fill colors for old and new distances 
+        q_dists = as.numeric(quantile(poly_df$mn_dstn,probs = c(seq(0,1,by=0.2))))
+        pal_dist <- colorBin("RdYlGn", domain = poly_df$mn_dstn, bins = q_dists,reverse =T)
+        pal_dist_new <- colorBin("RdYlGn", domain = poly_df$new_mn_dstn, bins = q_dists,reverse =T)
+        
+        # tag
+        rr <- tags$div(
+          'Schneider et al.',tags$em('parkrun, access, equity.'), '2018. Data and code available at:',tags$a(href="https://github.com/bitowaqr/pae2", "https://github.com/bitowaqr/pae2",target="_blank")  
+        )  
+        
+        
+
+        
+        
+        
+        
+        # LEAFLET MAP
+        map = leaflet() %>%
+          # provider base tiles
+          addProviderTiles(providers$Stamen.Toner, group = "Toner Map"
+                           ) %>%
+          addTiles(group = "OSM Map"
+                   ) %>%
+          addProviderTiles("CartoDB.Positron",group= "Carto Map", options= providerTileOptions(opacity = 0.99)
+                           ) %>%
+          # set view to sheffield
+          setView(lng = -1.43, lat = 53.36, zoom = 7
+          ) %>%
+          # add tag
+          addControl(rr, position = "bottomright") %>%
+        
+          # layer control
+          addLayersControl(
+            baseGroups = c("Carto Map","Toner Map","OSM Map"),
+            overlayGroups = c("parkrun Events","Distance","new Events (first)","new Events (consecutive)","candidate parks","new Distance"),
+            options = layersControlOptions(collapsed = T,autoZIndex=T)
+          ) %>%
+          
+          # add established parkrun events
+          addCircleMarkers(
+            group = "parkrun Events",
+            data = parkrun_marker,
+            radius = 5,
+            fillColor = "blue",
+            stroke = FALSE, fillOpacity = 0.9,
+            popup = paste("Course:",parkrun_marker$Club,"<br>",
+                          "Established:", parkrun_marker$Estblsh,"<br>",
+                          "Age in years:", parkrun_marker$Age_yrs,"<br>",
+                          "Mean participants:", round(parkrun_marker$Mn_prtc),"<br>",
+                          "Mean volunteers:", round(parkrun_marker$Mn_vlnt),"<br>",
+                          "Served population (new):", parkrun_marker$pop_served,"<br>",
+                          "Served LSOA (new):", parkrun_marker$lsoa_served,"<br>")
+            ) %>% 
+          # add top candidates
+          addCircleMarkers(
+            group = "new Events (consecutive)", 
+            lng = selected_parks.coord[,1],
+            lat = selected_parks.coord[,2],
+            radius = 6,fillColor = "purple",stroke = FALSE, fillOpacity = 0.9,
+            popup = paste("Park:", selected_parks$distName1,"<br>",
+                          "Pick no:", 1:length(selected_parks$id),"<br>",
+                          "Reduced pop*dist:",selected_parks$dist_reduction,"% <br>",
+                          "Served population:", selected_parks$pop_served,"<br>",
+                          "Served LSOA:", selected_parks$lsoa_served,"<br>")
+            ) %>% 
+          addCircleMarkers(
+            group = "new Events (first)",
+            lng = first_selection_parks.coord[,1],
+            lat = first_selection_parks.coord[,2],
+            radius = 6,fillColor = "violet",stroke = FALSE, fillOpacity = 0.9,
+            popup = paste("Park:", first_selection_parks$distName1,"<br>",
+                          "Pick no:", 1:length(first_selection_parks$distName1),"<br>",
+                          "Reduced pop*dist:",first_selection_parks$dist_reduction,"%")
+          ) %>% 
+          # add distances from lsoa to old events
+          addPolygons(data = poly_df, group = "Distance",
+                      color = "gray", smoothFactor = 0,stroke = T,opacity = 0.5,
+                      weight = 0.1, fillOpacity = 0.5,fillColor = ~pal_dist(mn_dstn),
+                      highlight = highlightOptions(
+                        weight = 1,color = "cyan",opacity = 1,bringToFront = FALSE,sendToBack = TRUE),
+                      popup = paste(
+                        poly_df$name,"<br>",
+                        "Nearest event:", poly_df$nrst_vn,"<br>",
+                        "Distance: ",poly_df$mn_dstn," km <br>",
+                        "new Distance: ",poly_df$new_mn_dstn," km <br>",
+                        "SIMD score:", poly_df$a,"<br>",
+                        "Pop density:", poly_df$pp_dnst,"<br>",
+                        "Population:", poly_df$pop)
+                      ) %>%
+          # add distances from lsoa to new and old events
+          addPolygons(data = poly_df, group = "new Distance",
+                      color = "gray", smoothFactor = 0,stroke = T,opacity = 0.5,
+                      weight = 0.1, fillOpacity = 0.5,fillColor = ~pal_dist_new(new_mn_dstn),
+                      highlight = highlightOptions(
+                        weight = 1,color = "cyan",opacity = 1,bringToFront = FALSE,sendToBack = TRUE),
+                      popup = paste(
+                        poly_df$name,"<br>",
+                        "Nearest event:", poly_df$nrst_vn,"<br>",
+                        "Distance: ",poly_df$mn_dstn," km <br>",
+                        "new Distance: ",poly_df$new_mn_dstn," km <br>",
+                        "SIMD score:", poly_df$a,"<br>",
+                        "Pop density:", poly_df$pp_dnst,"<br>",
+                        "Population:", poly_df$pop)
+                      ) %>%
+          # add candidate parks as parks
+          addPolygons(data = selected_parks_any, group = "candidate parks",
+                      color = "gray", smoothFactor = 0,stroke = T,opacity = 0.5,
+                      weight = 0.1, fillOpacity = 0.5,fillColor = "cyan",
+                      highlight = highlightOptions(weight = 1,color = "cyan",opacity = 1,
+                                                   bringToFront = FALSE,sendToBack = TRUE),
+                      popup = paste("Park:", selected_parks_any$distName1,"<br>")
+                      ) %>%
+          # add legend
+          addLegend("bottomleft", pal = pal_dist, values = poly_df$mn_dstn,
+                    opacity = 0.7, title="Distance quintiles",group = c("Distance"),
+                    labFormat = labelFormat(
+                      suffix  = "km") 
+                    )%>%
+          addLegend("bottomleft", pal = pal_dist_new, values = poly_df$new_mn_dstn,
+                    opacity = 0.7, title="Distance quintiles",group = c("new Distance"),
+                    labFormat = labelFormat(
+                      suffix  = "km") 
+          )%>%
+          # hide all layers except old parkrun events
+          hideGroup("Distance") %>%
+          hideGroup("new Distance") %>%
+          hideGroup("candidate parks") %>%
+          hideGroup("new Events (consecutive)") %>%
+          hideGroup("new Events (first)")
+      
+        
+        # map
+        
+        # save the map as a stand-aline html file
+        htmlwidgets::saveWidget(map,file="index.html",title = "parkrun, access & equity",selfcontained = F)
+        
+        
 
   
   ### ANALYSIS
+        # tbc
