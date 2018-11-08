@@ -215,6 +215,7 @@ distanc0r = function(candidates, # new park coorindates matrix
     # parks first or consecutive
     selected_parks_any = subset(greenspaces,
                             selected | first_picks_selection)
+    selected_parks_any$area = area(selected_parks_any)
     
     
 ### MAP RESULTS
@@ -328,7 +329,8 @@ distanc0r = function(candidates, # new park coorindates matrix
                       weight = 0.1, fillOpacity = 0.5,fillColor = "cyan",
                       highlight = highlightOptions(weight = 1,color = "cyan",opacity = 1,
                                                    bringToFront = FALSE,sendToBack = TRUE),
-                      popup = paste("Park:", selected_parks_any$distName1,"<br>")
+                      popup = paste("Park:", selected_parks_any$distName1,"<br>",
+                                    "Area:",selected_parks_any$area)
                       ) %>%
           # add legend
           addLegend("bottomleft", pal = pal_dist, values = poly_df$mn_dstn,
