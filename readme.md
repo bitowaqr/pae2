@@ -3,7 +3,7 @@
 
 <br>
 
-  **– work in progress –**
+  **– deprecated –**
 
 <br>
 
